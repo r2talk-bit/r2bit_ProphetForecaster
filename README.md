@@ -118,3 +118,5 @@ DATA;QUANTIDADE_VENDIDA_SKU_123;QUANTIDADE_VENDIDA_SKU_456
 - `app.py`: Main Streamlit application
 - `src/util/forecaster.py`: Contains the forecasting functions
 - `requirements.txt`: List of dependencies
+
+r2talk
