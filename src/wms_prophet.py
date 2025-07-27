@@ -917,5 +917,107 @@ def main():
     logger.info("Forecasting process completed successfully")
 
 
+def run_prophet_forecast(input_file, output_dir='outputs', periods=30, delimiter=None, granularity='daily', 
+                      use_iqr=True, iqr_multiplier=1.5, max_threshold=None, log_transform=False, cross_validate=False):
+    """
+    Run the Prophet forecasting process with the provided parameters.
+    This function is designed to be called from other Python modules (e.g., Streamlit app).
+    
+    Args:
+        input_file (str or pd.DataFrame): Path to input CSV file or pandas DataFrame with the data
+        output_dir (str): Path to output directory (default: 'outputs')
+        periods (int): Number of periods to forecast (default: 30)
+        delimiter (str, optional): CSV delimiter (default: auto-detect between ',' and ';')
+        granularity (str): Time granularity for forecasting ('daily', 'weekly', or 'monthly') (default: 'daily')
+        use_iqr (bool): Whether to use IQR method for outlier detection (default: True)
+        iqr_multiplier (float): Multiplier for IQR to determine outlier thresholds (default: 1.5)
+        max_threshold (float, optional): Maximum threshold for values. Values above this will be capped
+        log_transform (bool): Whether to apply log transformation to the data (default: False)
+        cross_validate (bool): Whether to perform cross-validation (default: False)
+        
+    Returns:
+        dict: Dictionary containing forecast results, metrics, and paths to output files
+    """
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+    
+    logger.info("Starting WMS Prophet Forecaster (API mode)")
+    logger.info(f"Output directory: {output_dir}")
+    logger.info(f"Forecast periods: {periods}")
+    logger.info(f"Time granularity: {granularity}")
+    
+    # Load data - handle both file path and DataFrame inputs
+    if isinstance(input_file, pd.DataFrame):
+        df = input_file
+        logger.info(f"Using provided DataFrame with {len(df)} data points")
+    else:
+        df = load_data(input_file, delimiter)
+        logger.info(f"Loaded {len(df)} data points from {input_file}")
+    
+    # Validate data and handle outliers
+    df = validate_data(
+        df,
+        max_threshold=max_threshold,
+        use_iqr=use_iqr,
+        iqr_multiplier=iqr_multiplier,
+        log_transform=log_transform,
+        granularity=granularity
+    )
+    
+    # Optionally perform cross-validation to find optimal parameters
+    cv_metrics = None
+    if cross_validate:
+        cv_metrics = cross_validate_model(df, initial='90 days', period='30 days', horizon='60 days')
+        if cv_metrics is not None:
+            logger.info(f"Cross-validation complete. Use these metrics to optimize your model parameters.")
+        else:
+            logger.warning("Skipping cross-validation due to errors. Continuing with model training.")
+    
+    # Train model and generate forecast
+    forecast, model = train_prophet_model(
+        df, 
+        periods=periods, 
+        log_transform=log_transform,
+        granularity=granularity
+    )
+    
+    # Calculate metrics
+    metrics = calculate_metrics(df, forecast)
+    logger.info(f"Forecast metrics: MAE={metrics['MAE']:.2f}, RMSE={metrics['RMSE']:.2f}, MAPE={metrics['MAPE']:.2f}%")
+    
+    # Generate comparison plot
+    plot_path = os.path.join(output_dir, 'forecast_comparison.png')
+    generate_comparison_plot(df, forecast, plot_path)
+    
+    # Save metrics
+    metrics_path = os.path.join(output_dir, 'forecast_metrics.csv')
+    save_metrics(metrics, metrics_path)
+    
+    # Save forecast
+    forecast_path = os.path.join(output_dir, 'forecast_results.csv')
+    compare_path = os.path.join(output_dir, 'forecast_compare_results.csv')
+    save_forecast(forecast, df, forecast_path, compare_path)
+    
+    # Generate components plot
+    components_path = os.path.join(output_dir, 'forecast_components.png')
+    fig = model.plot_components(forecast)
+    fig.savefig(components_path)
+    plt.close(fig)
+    
+    logger.info("Forecasting process completed successfully")
+    
+    # Return results as a dictionary
+    return {
+        'forecast': forecast,
+        'model': model,
+        'metrics': metrics,
+        'plot_path': plot_path,
+        'components_path': components_path,
+        'forecast_path': forecast_path,
+        'compare_path': compare_path,
+        'metrics_path': metrics_path,
+        'original_data': df
+    }
+
 if __name__ == "__main__":
     main()
